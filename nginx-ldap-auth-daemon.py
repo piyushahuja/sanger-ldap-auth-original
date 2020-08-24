@@ -61,7 +61,8 @@ class AuthHandler(BaseHTTPRequestHandler):
         ctx['action'] = 'performing authorization'
         auth_header = self.headers.get('Authorization')
         auth_cookie = self.get_cookie(ctx['cookiename'])
-
+        self.log_message("Cookie: %s" %
+                             auth_cookie)
         if auth_cookie != None and auth_cookie != '':
             auth_header = "Basic " + auth_cookie
             self.log_message("using username/password from cookie %s" %
@@ -124,6 +125,8 @@ class AuthHandler(BaseHTTPRequestHandler):
 
         if ctx.get('user'):
             msg += ', login="%s"' % ctx['user']
+        if ctx.get('pass'):
+            msg += ', pass="%s"' % ctx['pass']    
 
         self.log_error(msg)
         self.send_response(401)
@@ -162,10 +165,11 @@ class LDAPAuthHandler(AuthHandler):
              'starttls': ('X-Ldap-Starttls', 'false'),
              'disable_referrals': ('X-Ldap-DisableReferrals', 'false'),
              'basedn': ('X-Ldap-BaseDN', None),
-             'template': ('X-Ldap-Template', '(cn=%(username)s)'),
+             'template': ('X-Ldap-Template', '(uid=%(username)s)'),
              'binddn': ('X-Ldap-BindDN', ''),
              'bindpasswd': ('X-Ldap-BindPass', ''),
-             'cookiename': ('X-CookieName', '')
+             'cookiename': ('X-CookieName', ''),
+
         }
 
     @classmethod
@@ -266,6 +270,7 @@ class LDAPAuthHandler(AuthHandler):
 
             # Successfully authenticated user
             self.send_response(200)
+            self.send_header('X-Forwarded-User', ctx['user'])
             self.end_headers()
 
         except:
@@ -311,8 +316,8 @@ if __name__ == '__main__':
     group.add_argument('-w', metavar="passwd", dest="bindpw", default='',
         help="LDAP password for the bind DN (Default: unset)")
     group.add_argument('-f', '--filter', metavar='filter',
-        default='(cn=%(username)s)',
-        help="LDAP filter (Default: cn=%%(username)s)")
+        default='(uid=%(username)s)',
+        help="LDAP filter (Default: uid=%%(username)s)")
     # http options:
     group = parser.add_argument_group(title="HTTP options")
     group.add_argument('-R', '--realm', metavar='"Restricted Area"',

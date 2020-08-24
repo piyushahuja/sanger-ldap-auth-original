@@ -8,7 +8,7 @@
 # 1) accepts GET  requests on /login and responds with a login form
 # 2) accepts POST requests on /login, sets a cookie, and responds with redirect
 
-import sys, os, signal, base64, cgi, hashlib
+import sys, os, signal, base64, cgi
 if sys.version_info.major == 2:
     from urlparse import urlparse
     from Cookie import BaseCookie
@@ -119,7 +119,6 @@ class AppHandler(BaseHTTPRequestHandler):
             #
             # WARNING WARNING WARNING
             enc = base64.b64encode(ensure_bytes(user + ':' + passwd))
-
             if sys.version_info.major == 3:
                 enc = enc.decode()
             self.send_header('Set-Cookie', b'nginxauth=' + enc + b'; httponly')
@@ -133,7 +132,6 @@ class AppHandler(BaseHTTPRequestHandler):
         self.auth_form(target)
 
 
-   
     def log_message(self, format, *args):
         if len(self.client_address) > 0:
             addr = BaseHTTPRequestHandler.address_string(self)
