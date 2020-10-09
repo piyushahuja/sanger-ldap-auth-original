@@ -27,9 +27,44 @@ elif sys.version_info.major == 3:
     from socketserver import ThreadingMixIn
 
 
+from cryptography.fernet import Fernet
+
+
+SECRET_FILE = "/data/auth_secret.key"
+
+
+def generate_auth_secret():
+    """
+    Generates a key and save it into a file
+    """
+    key = Fernet.generate_key()
+    with open(SECRET_FILE, "wb") as key_file:
+        key_file.write(key)
+
+
+def load_auth_secret():
+    """
+    Loads the secret used to encrypt the password
+    """
+    secret = open(SECRET_FILE, "r").read()
+    return secret
+
+
+def encrypt_message(message):
+    """
+    Encrypts a message
+    """
+    key = load_auth_secret()
+    encoded_message = message.encode()
+    f = Fernet(key)
+    encrypted_message = f.encrypt(encoded_message)
+    return encrypted_message
+
+
+
+
 def ensure_bytes(data):
     return data if sys.version_info.major == 2 else data.encode("utf-8")
-
 
 class AuthHTTPServer(ThreadingMixIn, HTTPServer):
     pass
@@ -118,11 +153,15 @@ class AppHandler(BaseHTTPRequestHandler):
             # and share a key with auth daemon that extracts this information
             #
             # WARNING WARNING WARNING
-            enc = base64.b64encode(ensure_bytes(user + ':' + passwd))
-            if sys.version_info.major == 3:
-                enc = enc.decode()
-            self.send_header('Set-Cookie', b'nginxauth=' + enc + b'; httponly')
+            SECRET = load_auth_secret()
+            # print(f"Secret: {SECRET}")
+            encrypted_password = encrypt_message(passwd)
+            # print(f"Secret: {SECRET}, password: {passwd}, encrypted_password: {encrypted_password}")
+            enc = base64.b64encode(ensure_bytes(user + ':' + str(encrypted_password)))
+            # if sys.version_info.major == 3:
+            #     enc = enc.decode()
 
+            self.send_header('Set-Cookie', b'nginxauth=' + enc + b'; httponly; Max-Age=0')
             self.send_header('Location', target)
             self.end_headers()
 
@@ -151,4 +190,8 @@ def exit_handler(signal, frame):
 if __name__ == '__main__':
     server = AuthHTTPServer(Listen, AppHandler)
     signal.signal(signal.SIGINT, exit_handler)
+    try:
+        load_auth_secret()
+    except:
+        generate_auth_secret()
     server.serve_forever()
