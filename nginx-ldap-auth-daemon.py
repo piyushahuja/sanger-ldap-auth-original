@@ -5,12 +5,10 @@
 # Copyright (C) 2014-2015 Nginx, Inc.
 
 import sys, os, signal, base64, ldap, argparse
-if sys.version_info.major == 2:
-    from Cookie import BaseCookie
-    from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
-elif sys.version_info.major == 3:
-    from http.cookies import BaseCookie
-    from http.server import HTTPServer, BaseHTTPRequestHandler
+
+
+from http.cookies import BaseCookie, SimpleCookie
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 if not hasattr(__builtins__, "basestring"): basestring = (str, bytes)
 
@@ -23,10 +21,12 @@ if not hasattr(__builtins__, "basestring"): basestring = (str, bytes)
 # -----------------------------------------------------------------------------
 # Requests are processed in separate thread
 import threading
-if sys.version_info.major == 2:
-    from SocketServer import ThreadingMixIn
-elif sys.version_info.major == 3:
-    from socketserver import ThreadingMixIn
+from socketserver import ThreadingMixIn
+
+
+from cryptography.fernet import Fernet
+
+SECRET_FILE = "/data/auth_secret.key"
 
 class AuthHTTPServer(ThreadingMixIn, HTTPServer):
     pass
@@ -47,10 +47,30 @@ class AuthHandler(BaseHTTPRequestHandler):
 
     # Return True if request is processed and response sent, otherwise False
     # Set ctx['user'] and ctx['pass'] for authentication
+    def _load_auth_secret(self):
+        """Loads the secret used to encrypt the password"""
+        secret = open(SECRET_FILE, "r").read()
+        return secret
+
+
+
+    def _decrypt_message(self,encrypted_message):
+        """
+        Decrypts an encrypted message
+        """
+        encrypted_message = encrypted_message.encode()
+        key = self._load_auth_secret()
+        self.log_message(f"SECRET = {key}")
+        f = Fernet(key)
+        decrypted_message = f.decrypt(encrypted_message)
+        return decrypted_message.decode()
+
+
+
     def do_GET(self):
 
         ctx = self.ctx
-
+        # If any of the LDAP params are not passed, return True. 
         ctx['action'] = 'input parameters check'
         for k, v in self.get_params().items():
             ctx[k] = self.headers.get(v[0], v[1])
@@ -63,13 +83,15 @@ class AuthHandler(BaseHTTPRequestHandler):
         auth_cookie = self.get_cookie(ctx['cookiename'])
         self.log_message("Cookie: %s" %
                              auth_cookie)
+        from_cookie = False
         if auth_cookie != None and auth_cookie != '':
-            auth_header = "Basic " + auth_cookie
             self.log_message("using username/password from cookie %s" %
                              ctx['cookiename'])
+            auth_header = "Basic " + auth_cookie
+            from_cookie = True
         else:
             self.log_message("using username/password from authorization header")
-
+          
         if auth_header is None or not auth_header.lower().startswith('basic '):
 
             self.send_response(401)
@@ -80,28 +102,37 @@ class AuthHandler(BaseHTTPRequestHandler):
             return True
 
         ctx['action'] = 'decoding credentials'
-
         try:
-            auth_decoded = base64.b64decode(auth_header[6:])
-            if sys.version_info.major == 3: auth_decoded = auth_decoded.decode("utf-8")
-            user, passwd = auth_decoded.split(':', 1)
-
+            if from_cookie:
+                to_decode = auth_cookie
+                self.log_message(f"To decode from cookie: {to_decode} ")
+                auth_decoded = base64.b64decode(to_decode).decode()
+                user, encrypted_password = auth_decoded.split(':', 1)
+                passwd = self._decrypt_message(encrypted_password)
+            else:
+                to_decode = auth_header[6:]
+                self.log_message(f"To decode from auth header: {to_decode} ")
+                auth_decoded = base64.b64decode(to_decode).decode()
+                user, passwd = auth_decoded.split(':', 1)
+            self.log_message(f"user: {user} {passwd} ")
         except:
             self.auth_failed(ctx)
             return True
 
         ctx['user'] = user
         ctx['pass'] = passwd
-
         # Continue request processing
         return False
 
     def get_cookie(self, name):
         cookies = self.headers.get('Cookie')
+        self.log_message(f"get_cookie called for cookie name: {name}")
         if cookies:
-            authcookie = BaseCookie(cookies).get(name)
+            authcookie = SimpleCookie(cookies).get(name)
+            # print("Decoded cookie: ", BaseCookie.value_decode(val=authcookie.value))
             if authcookie:
-                return authcookie.value
+                value = authcookie.value
+                return value
             else:
                 return None
         else:

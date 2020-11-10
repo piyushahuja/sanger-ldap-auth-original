@@ -9,22 +9,15 @@
 # 2) accepts POST requests on /login, sets a cookie, and responds with redirect
 
 import sys, os, signal, base64, cgi
-if sys.version_info.major == 2:
-    from urlparse import urlparse
-    from Cookie import BaseCookie
-    from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
-elif sys.version_info.major == 3:
-    from urllib.parse import urlparse
-    from http.cookies import BaseCookie
-    from http.server import HTTPServer, BaseHTTPRequestHandler
 
-Listen = ('localhost', 9000)
+from urllib.parse import urlparse
+from http.cookies import BaseCookie
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+Listen = ('0.0.0.0', 9000)
 
 import threading
-if sys.version_info.major == 2:
-    from SocketServer import ThreadingMixIn
-elif sys.version_info.major == 3:
-    from socketserver import ThreadingMixIn
+from socketserver import ThreadingMixIn
 
 
 from cryptography.fernet import Fernet
@@ -64,7 +57,7 @@ def encrypt_message(message):
 
 
 def ensure_bytes(data):
-    return data if sys.version_info.major == 2 else data.encode("utf-8")
+    return data.encode("utf-8")
 
 class AuthHTTPServer(ThreadingMixIn, HTTPServer):
     pass
@@ -154,14 +147,10 @@ class AppHandler(BaseHTTPRequestHandler):
             #
             # WARNING WARNING WARNING
             SECRET = load_auth_secret()
-            # print(f"Secret: {SECRET}")
+            self.log_message(f"SECRET = {SECRET}")
             encrypted_password = encrypt_message(passwd)
-            # print(f"Secret: {SECRET}, password: {passwd}, encrypted_password: {encrypted_password}")
-            enc = base64.b64encode(ensure_bytes(user + ':' + str(encrypted_password)))
-            # if sys.version_info.major == 3:
-            #     enc = enc.decode()
-
-            self.send_header('Set-Cookie', b'nginxauth=' + enc + b'; httponly; Max-Age=0')
+            enc = base64.b64encode(ensure_bytes(user + ':') + encrypted_password).decode()
+            self.send_header('Set-Cookie', f'nginxauth={enc}; httponly; Max-Age=200')
             self.send_header('Location', target)
             self.end_headers()
 
